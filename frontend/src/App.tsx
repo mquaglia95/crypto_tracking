@@ -5,6 +5,7 @@ import TaxTable from './components/TaxTable';
 import TaxLotsTable from './components/TaxLotsTable';
 import IncomeTable from './components/IncomeTable';
 import { TaxRecord, TaxSummary, TaxLot, IncomeEvent } from './types';
+import { API_BASE } from './api';
 
 type Tab = 'report' | 'lots' | 'income';
 
@@ -26,10 +27,10 @@ export default function App() {
     setLoadingIncome(true);
 
     const [reportRes, summaryRes, lotsRes, incomeRes] = await Promise.allSettled([
-      fetch('/api/report').then((r) => r.json()),
-      fetch('/api/summary').then((r) => r.json()),
-      fetch('/api/lots').then((r) => r.json()),
-      fetch('/api/income').then((r) => r.json()),
+      fetch(`${API_BASE}/api/report`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/summary`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/lots`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/income`).then((r) => r.json()),
     ]);
 
     if (reportRes.status === 'fulfilled') setRecords(reportRes.value);

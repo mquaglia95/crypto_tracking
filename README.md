@@ -147,6 +147,50 @@ You don't have to wait until December. Download a fresh CSV from Coinbase any ti
 
 ---
 
+## Deployment (Always-Accessible Dashboard)
+
+If you want the dashboard available in a browser any time without running local servers, deploy the frontend to Netlify (free) and the backend to Render (free tier). Both config files are already in this repo.
+
+**Prerequisites**: Your database must be on Supabase (Setup Option A above). If you used a local PostgreSQL, migrate to Supabase first by running `db/schema.sql` and `db/hifo_engine.sql` in the Supabase SQL editor.
+
+### Deploy the Backend to Render (free)
+
+> **Note on the free tier**: Render's free tier spins the server down after 15 minutes of inactivity. The first upload after idle time will have a ~30-second cold start. If that bothers you, Render's paid tier ($7/month) keeps it always on — let me know and I can set that up.
+
+1. Go to [render.com](https://render.com) and sign up (free).
+2. Click **New → Web Service**.
+3. Connect your GitHub account and select the `crypto_tracking` repository.
+4. Render will detect `render.yaml` automatically. Confirm the settings:
+   - **Root Directory**: `backend`
+   - **Build Command**: `npm install && npm run build`
+   - **Start Command**: `npm start`
+5. Under **Environment Variables**, add:
+   - `DATABASE_URL` → paste your Supabase connection string
+6. Click **Create Web Service**. Render will build and deploy in ~2 minutes.
+7. Copy the URL Render gives you — it looks like `https://crypto-hifo-backend.onrender.com`.
+
+### Deploy the Frontend to Netlify (free)
+
+1. Go to [netlify.com](https://netlify.com) and sign up (free).
+2. Click **Add new site → Import an existing project**.
+3. Connect GitHub and select `crypto_tracking`.
+4. Netlify will detect `netlify.toml` automatically. Confirm:
+   - **Base directory**: `frontend`
+   - **Build command**: `npm run build`
+   - **Publish directory**: `frontend/dist`
+5. Under **Site configuration → Environment variables**, add:
+   - `VITE_API_URL` → your Render backend URL (e.g. `https://crypto-hifo-backend.onrender.com`)
+6. Click **Deploy site**. Netlify builds in ~1 minute.
+7. Your dashboard is now live at a URL like `https://your-site-name.netlify.app`.
+
+### After Deploying
+
+- Open the Netlify URL in any browser — no local servers needed.
+- Upload a Coinbase CSV the same way as locally. The backend on Render processes it and stores results in Supabase.
+- Your data persists between visits since it lives in the cloud database.
+
+---
+
 ## API Endpoints
 
 The backend runs at `http://localhost:3001`. You can query it directly if needed.

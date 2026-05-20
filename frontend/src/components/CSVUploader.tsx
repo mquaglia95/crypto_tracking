@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { API_BASE } from '../api';
 
 interface Props {
   onUploadComplete: () => void;
@@ -32,7 +33,7 @@ export default function CSVUploader({ onUploadComplete }: Props) {
       formData.append('file', file);
 
       try {
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const res = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: formData });
         const data = await res.json();
 
         if (!res.ok) throw new Error(data.error || 'Upload failed');
