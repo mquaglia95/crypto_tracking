@@ -62,25 +62,21 @@ export default function DashboardStats({ summary, loading }: Props) {
         label="Net Short-Term Gains"
         value={fmt(summary.net_short_term)}
         sub="Taxed as ordinary income"
-        color={gainColor(summary.net_short_term)}
       />
       <StatCard
         label="Net Long-Term Gains"
         value={fmt(summary.net_long_term)}
         sub="0% / 15% / 20% rates"
-        color={gainColor(summary.net_long_term)}
       />
       <StatCard
         label="Total Net Gain/Loss"
         value={fmt(summary.net_total)}
         sub={`${summary.winning_trades}W / ${summary.losing_trades}L across ${summary.total_trades} trades`}
-        color={gainColor(summary.net_total)}
       />
       <StatCard
         label="Staking Income"
         value={fmt(summary.total_staking_income)}
         sub="Ordinary income"
-        color="text-brand-clay"
       />
     </div>
   );

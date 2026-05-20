@@ -85,7 +85,7 @@ export default function App() {
                 className={`pb-3 text-sm font-medium border-b-2 transition-colors
                   ${activeTab === tab.id
                     ? 'border-brand-green-dark text-brand-green-dark'
-                    : 'border-transparent text-brand-green-dark/50 hover:text-brand-green-dark'}`}
+                    : 'border-transparent text-brand-dark hover:text-brand-dark'}`}
               >
                 {tab.label}
               </button>
