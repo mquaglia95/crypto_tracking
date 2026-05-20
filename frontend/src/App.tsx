@@ -56,15 +56,14 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+    <div className="min-h-screen bg-brand-light">
+      <header className="bg-white border-b border-brand-mid/40">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="text-2xl">📊</span>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Crypto HIFO Tax Tracker</h1>
-              <p className="text-xs text-gray-500">
+              <h1 className="text-lg font-bold text-brand-dark">Crypto HIFO Tax Tracker</h1>
+              <p className="text-xs text-brand-mid">
                 HIFO cost basis · IRS Form 8949 · Mid-year check anytime
               </p>
             </div>
@@ -73,17 +72,11 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Coinbase API Sync */}
         <CoinbaseSync onSyncComplete={fetchAll} />
-
-        {/* CSV Upload */}
         <CSVUploader onUploadComplete={fetchAll} />
-
-        {/* Stats Cards */}
         <DashboardStats summary={summary} loading={loadingSummary} />
 
-        {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
+        <div className="border-b border-brand-mid/40 mb-6">
           <nav className="flex gap-6">
             {tabs.map((tab) => (
               <button
@@ -91,8 +84,8 @@ export default function App() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`pb-3 text-sm font-medium border-b-2 transition-colors
                   ${activeTab === tab.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    ? 'border-brand-clay text-brand-clay'
+                    : 'border-transparent text-brand-mid hover:text-brand-dark'}`}
               >
                 {tab.label}
               </button>
@@ -100,16 +93,9 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Tab Content */}
-        {activeTab === 'report' && (
-          <TaxTable records={records} loading={loadingReport} />
-        )}
-        {activeTab === 'lots' && (
-          <TaxLotsTable lots={lots} loading={loadingLots} />
-        )}
-        {activeTab === 'income' && (
-          <IncomeTable events={income} loading={loadingIncome} />
-        )}
+        {activeTab === 'report' && <TaxTable records={records} loading={loadingReport} />}
+        {activeTab === 'lots'   && <TaxLotsTable lots={lots} loading={loadingLots} />}
+        {activeTab === 'income' && <IncomeTable events={income} loading={loadingIncome} />}
       </main>
     </div>
   );

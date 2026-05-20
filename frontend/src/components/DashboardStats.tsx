@@ -18,10 +18,10 @@ function StatCard({
   color?: string;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-1 shadow-sm">
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
-      <p className={`text-2xl font-bold ${color ?? 'text-gray-900'}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400">{sub}</p>}
+    <div className="bg-white rounded-xl border border-brand-mid/40 p-5 flex flex-col gap-1 shadow-sm">
+      <p className="text-xs font-medium text-brand-mid uppercase tracking-wide">{label}</p>
+      <p className={`text-2xl font-bold ${color ?? 'text-brand-dark'}`}>{value}</p>
+      {sub && <p className="text-xs text-brand-mid">{sub}</p>}
     </div>
   );
 }
@@ -32,9 +32,9 @@ function fmt(n: number): string {
 }
 
 function gainColor(n: number): string {
-  if (n > 0) return 'text-green-600';
-  if (n < 0) return 'text-red-600';
-  return 'text-gray-900';
+  if (n > 0) return 'text-brand-green';
+  if (n < 0) return 'text-brand-clay';
+  return 'text-brand-dark';
 }
 
 export default function DashboardStats({ summary, loading }: Props) {
@@ -42,7 +42,7 @@ export default function DashboardStats({ summary, loading }: Props) {
     return (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="bg-gray-100 animate-pulse rounded-xl h-24" />
+          <div key={i} className="bg-brand-light animate-pulse rounded-xl h-24" />
         ))}
       </div>
     );
@@ -50,7 +50,7 @@ export default function DashboardStats({ summary, loading }: Props) {
 
   if (!summary) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center text-sm text-gray-400 mb-8">
+      <div className="bg-brand-light border border-brand-mid/40 rounded-xl p-6 text-center text-sm text-brand-mid mb-8">
         Upload a CSV to see your tax summary.
       </div>
     );
@@ -80,7 +80,7 @@ export default function DashboardStats({ summary, loading }: Props) {
         label="Staking Income"
         value={fmt(summary.total_staking_income)}
         sub="Ordinary income"
-        color="text-purple-600"
+        color="text-brand-clay"
       />
     </div>
   );
