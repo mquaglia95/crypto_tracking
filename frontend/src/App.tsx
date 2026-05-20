@@ -84,8 +84,8 @@ export default function App() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`pb-3 text-sm font-medium border-b-2 transition-colors
                   ${activeTab === tab.id
-                    ? 'border-brand-green text-brand-green'
-                    : 'border-transparent text-brand-green/60 hover:text-brand-green'}`}
+                    ? 'border-brand-green-dark text-brand-green-dark'
+                    : 'border-transparent text-brand-green-dark/50 hover:text-brand-green-dark'}`}
               >
                 {tab.label}
               </button>

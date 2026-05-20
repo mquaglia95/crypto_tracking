@@ -6,6 +6,7 @@ export default {
       colors: {
         brand: {
           green: '#AFD5AA',
+          'green-dark': '#3C6D36',
           light: '#F0F2EF',
           dark:  '#5C5346',
           mid:   '#A69F98',
