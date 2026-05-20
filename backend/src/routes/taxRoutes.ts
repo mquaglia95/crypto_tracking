@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import pool from '../config/database';
 import { ingestCoinbaseCSV } from '../services/parser';
+import { syncFromCoinbase } from '../services/coinbaseApiService';
 
 const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../uploads/') });
@@ -27,6 +28,26 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
     if (req.file?.path) {
       fs.unlink(req.file.path, () => {});
     }
+  }
+});
+
+// POST /api/sync
+// Pulls transaction history directly from the Coinbase API using the provided
+// API key and secret. Credentials are used only in memory and never stored.
+router.post('/sync', async (req: Request, res: Response): Promise<void> => {
+  const { apiKey, apiSecret } = req.body as { apiKey?: string; apiSecret?: string };
+
+  if (!apiKey || !apiSecret) {
+    res.status(400).json({ error: 'apiKey and apiSecret are required' });
+    return;
+  }
+
+  try {
+    const summary = await syncFromCoinbase(apiKey, apiSecret);
+    res.json({ success: true, summary });
+  } catch (err) {
+    console.error('Coinbase sync error:', err);
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 

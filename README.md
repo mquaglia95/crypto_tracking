@@ -198,6 +198,7 @@ The backend runs at `http://localhost:3001`. You can query it directly if needed
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/upload` | Upload a Coinbase CSV (multipart form, field name `file`) |
+| `POST` | `/api/sync` | Pull history directly from Coinbase API (`{ apiKey, apiSecret }` JSON body) |
 | `GET` | `/api/report` | Form 8949-structured matched trades |
 | `GET` | `/api/summary` | Aggregate dashboard stats |
 | `GET` | `/api/lots` | Open (unrealized) tax lots |
