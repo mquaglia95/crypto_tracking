@@ -34,10 +34,10 @@ export default function App() {
       fetch(`${API_BASE}/api/income`).then((r) => r.json()),
     ]);
 
-    if (reportRes.status === 'fulfilled') setRecords(reportRes.value);
-    if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value);
-    if (lotsRes.status === 'fulfilled') setLots(lotsRes.value);
-    if (incomeRes.status === 'fulfilled') setIncome(incomeRes.value);
+    if (reportRes.status === 'fulfilled' && Array.isArray(reportRes.value)) setRecords(reportRes.value);
+    if (summaryRes.status === 'fulfilled' && !summaryRes.value?.error) setSummary(summaryRes.value);
+    if (lotsRes.status === 'fulfilled' && Array.isArray(lotsRes.value)) setLots(lotsRes.value);
+    if (incomeRes.status === 'fulfilled' && Array.isArray(incomeRes.value)) setIncome(incomeRes.value);
 
     setLoadingReport(false);
     setLoadingSummary(false);
