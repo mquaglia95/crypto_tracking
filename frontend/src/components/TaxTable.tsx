@@ -14,7 +14,9 @@ function fmt(n: number): string {
 export default function TaxTable({ records, loading }: Props) {
   const [filter, setFilter] = useState<'ALL' | 'SHORT' | 'LONG'>('ALL');
 
-  const visible = filter === 'ALL' ? records : records.filter((r) => r.classification === filter);
+  const visible = (filter === 'ALL' ? records : records.filter((r) => r.classification === filter))
+    .slice()
+    .sort((a, b) => (a.date_acquired < b.date_acquired ? 1 : -1));
 
   if (loading) {
     return <div className="bg-brand-light animate-pulse rounded-xl h-48" />;
