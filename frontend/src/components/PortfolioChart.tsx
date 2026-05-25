@@ -126,9 +126,8 @@ function SortedTooltip({ active, payload, label, yMode, range }: TooltipProps) {
   );
 }
 
-// Hardcoded CoinGecko IDs for common coins — avoids depending on the
-// /coins/markets API call which rate-limits aggressively on the free tier.
-const KNOWN_IDS: Record<string, string> = {
+// CoinGecko coin IDs for common coins
+const CG_IDS: Record<string, string> = {
   BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',
   XRP: 'ripple', DOGE: 'dogecoin', SHIB: 'shiba-inu', PEPE: 'pepe',
   LINK: 'chainlink', DOT: 'polkadot', USDC: 'usd-coin', USDT: 'tether',
@@ -136,17 +135,58 @@ const KNOWN_IDS: Record<string, string> = {
   LTC: 'litecoin', ADA: 'cardano', ATOM: 'cosmos', ZEC: 'zcash',
   MORPHO: 'morpho', ONDO: 'ondo-finance', HYPE: 'hyperliquid',
   PENGU: 'pudgy-penguins', PNUT: 'peanut-the-squirrel',
-  XYO: 'xyo-network', BILL: 'bill-murray-meme',
+  XYO: 'xyo-network',
 };
+
+// CoinCap coin IDs — used as fallback when CoinGecko fails
+const COINCAP_IDS: Record<string, string> = {
+  BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binance-coin',
+  XRP: 'xrp', DOGE: 'dogecoin', SHIB: 'shiba-inu', PEPE: 'pepe',
+  LINK: 'chainlink', DOT: 'polkadot', USDC: 'usd-coin', USDT: 'tether',
+  MATIC: 'matic-network', AVAX: 'avalanche-2', UNI: 'uniswap',
+  LTC: 'litecoin', ADA: 'cardano', ATOM: 'cosmos', ZEC: 'zcash',
+  MORPHO: 'morpho', ONDO: 'ondo',
+  XYO: 'xyo-network',
+};
+
+function coincapInterval(days: number): string {
+  if (days <= 1) return 'm5';
+  if (days <= 7) return 'h1';
+  return 'd1';
+}
+
+async function fetchCoinGecko(cgId: string, days: number): Promise<[number, number][] | null> {
+  try {
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${cgId}/market_chart?vs_currency=usd&days=${days}`
+    );
+    const data = await r.json();
+    if (Array.isArray(data.prices)) return data.prices;
+  } catch { /* fall through */ }
+  return null;
+}
+
+async function fetchCoinCap(capId: string, days: number): Promise<[number, number][] | null> {
+  try {
+    const now = Date.now();
+    const start = now - days * 24 * 60 * 60 * 1000;
+    const interval = coincapInterval(days);
+    const r = await fetch(
+      `https://api.coincap.io/v2/assets/${capId}/history?interval=${interval}&start=${start}&end=${now}`
+    );
+    const json = await r.json();
+    if (Array.isArray(json.data)) {
+      return json.data.map((p: { time: number; priceUsd: string }) => [p.time, parseFloat(p.priceUsd)] as [number, number]);
+    }
+  } catch { /* fall through */ }
+  return null;
+}
 
 const MARKETS_CACHE_KEY = 'cg_markets_symbolToId';
 const MARKETS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 async function getSymbolToId(): Promise<Record<string, string>> {
-  // Start with hardcoded map
-  const result: Record<string, string> = { ...KNOWN_IDS };
-
-  // Try cache first
+  const result: Record<string, string> = { ...CG_IDS };
   try {
     const raw = sessionStorage.getItem(MARKETS_CACHE_KEY);
     if (raw) {
@@ -154,8 +194,6 @@ async function getSymbolToId(): Promise<Record<string, string>> {
       if (Date.now() - ts < MARKETS_CACHE_TTL) return { ...result, ...data };
     }
   } catch { /* ignore */ }
-
-  // Fetch from CoinGecko and cache result
   try {
     const r = await fetch(
       'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=500&page=1'
@@ -164,13 +202,10 @@ async function getSymbolToId(): Promise<Record<string, string>> {
     if (Array.isArray(markets)) {
       const fetched: Record<string, string> = {};
       for (const c of markets) fetched[c.symbol.toUpperCase()] = c.id;
-      try {
-        sessionStorage.setItem(MARKETS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: fetched }));
-      } catch { /* ignore storage errors */ }
+      try { sessionStorage.setItem(MARKETS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: fetched })); } catch { /* ignore */ }
       return { ...result, ...fetched };
     }
-  } catch { /* fall back to hardcoded map */ }
-
+  } catch { /* fall back to hardcoded */ }
   return result;
 }
 
@@ -195,7 +230,6 @@ export default function PortfolioChart() {
   const [eventsLoading, setEventsLoading] = useState(true);
   const [pricesLoading, setPricesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pricedAssets, setPricedAssets] = useState<Set<string>>(new Set());
 
   // Fetch buy/sell events once on mount
   useEffect(() => {
@@ -265,24 +299,28 @@ export default function PortfolioChart() {
         // Step 1: get symbol → CoinGecko id mapping (hardcoded + API + cache)
         const symbolToId = await getSymbolToId();
 
-        // Step 2: fetch price history for each asset sequentially with a delay
-        // to avoid CoinGecko's free-tier rate limit
+        // Step 2: fetch price history — try CoinGecko first, fall back to CoinCap
         const priceArrays: Record<string, [number, number][]> = {};
 
         for (const asset of assets) {
-          const id = symbolToId[asset];
-          if (!id) continue;
-          try {
-            const r = await fetch(
-              `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
-            );
-            const data = await r.json();
-            if (Array.isArray(data.prices)) priceArrays[asset] = data.prices;
-          } catch { /* silently skip unpriceable coins */ }
-          await new Promise(res => setTimeout(res, 400));
-        }
+          const cgId = symbolToId[asset];
+          let prices: [number, number][] | null = null;
 
-        setPricedAssets(new Set(Object.keys(priceArrays)));
+          if (cgId) {
+            prices = await fetchCoinGecko(cgId, days);
+            await new Promise(res => setTimeout(res, 400));
+          }
+
+          if (!prices) {
+            const capId = COINCAP_IDS[asset];
+            if (capId) {
+              prices = await fetchCoinCap(capId, days);
+              await new Promise(res => setTimeout(res, 300));
+            }
+          }
+
+          if (prices) priceArrays[asset] = prices;
+        }
 
         // Step 3: build chart data — use null for coins with no price data
         setChartData(points.map((pt, i) => {
@@ -361,27 +399,25 @@ export default function PortfolioChart() {
         </div>
       </div>
 
-      {/* Coin filter chips — in USD mode only show coins that have price data */}
+      {/* Coin filter chips */}
       <div className="flex flex-wrap gap-2 mb-4">
-        {assets
-          .filter(asset => yMode === 'QTY' || pricesLoading || pricedAssets.has(asset))
-          .map((asset, i) => {
-            const hidden = hiddenAssets.has(asset);
-            return (
-              <button
-                key={asset}
-                onClick={() => toggleAsset(asset)}
-                style={hidden ? undefined : { backgroundColor: COLORS[i % COLORS.length], borderColor: COLORS[i % COLORS.length] }}
-                className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                  hidden
-                    ? 'bg-white text-brand-mid border-brand-mid/40'
-                    : 'text-white'
-                }`}
-              >
-                {asset}
-              </button>
-            );
-          })}
+        {assets.map((asset, i) => {
+          const hidden = hiddenAssets.has(asset);
+          return (
+            <button
+              key={asset}
+              onClick={() => toggleAsset(asset)}
+              style={hidden ? undefined : { backgroundColor: COLORS[i % COLORS.length], borderColor: COLORS[i % COLORS.length] }}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                hidden
+                  ? 'bg-white text-brand-mid border-brand-mid/40'
+                  : 'text-white'
+              }`}
+            >
+              {asset}
+            </button>
+          );
+        })}
       </div>
 
       {/* Chart */}
