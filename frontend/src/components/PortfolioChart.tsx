@@ -55,15 +55,16 @@ function generatePoints(start: Date, range: Range): Date[] {
   return pts;
 }
 
-function closestPrice(prices: [number, number][], ts: number): number {
-  if (!prices.length) return 0;
+function closestPrice(prices: [number, number][], ts: number): number | null {
+  if (!prices.length) return null;
+  // Don't extrapolate before the coin existed or after the last known price
+  if (ts < prices[0][0] - DAY_MS || ts > prices[prices.length - 1][0] + DAY_MS) return null;
   let lo = 0, hi = prices.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     if (prices[mid][0] < ts) lo = mid + 1;
     else hi = mid;
   }
-  // check lo-1 too
   if (lo > 0 && Math.abs(prices[lo - 1][0] - ts) < Math.abs(prices[lo][0] - ts)) lo--;
   return prices[lo][1];
 }
@@ -319,7 +320,7 @@ export default function PortfolioChart() {
             }
           }
 
-          if (prices) priceArrays[asset] = prices;
+          if (prices && prices.length > 0) priceArrays[asset] = prices;
         }
 
         // Step 3: build chart data — use null for coins with no price data
@@ -328,7 +329,8 @@ export default function PortfolioChart() {
           for (const asset of assets) {
             const qty = qtyAtPoint[i][asset];
             const priceData = priceArrays[asset];
-            row[asset] = priceData ? qty * closestPrice(priceData, pt.getTime()) : null;
+            const price = priceData ? closestPrice(priceData, pt.getTime()) : null;
+            row[asset] = price !== null ? qty * price : null;
           }
           return row;
         }));
@@ -385,7 +387,7 @@ export default function PortfolioChart() {
             {RANGES.map(r => (
               <button
                 key={r}
-                onClick={() => setRange(r)}
+                onClick={() => { setRange(r); setYMode('QTY'); }}
                 className={`px-3 py-1.5 transition-colors ${
                   range === r
                     ? 'bg-brand-dark text-white'
