@@ -42,22 +42,49 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
   unmatched: number;
 }> {
   const rows: CoinbaseRow[] = [];
-  let headerSkipped = false;
+  let rawLineCount = 0;
+
+  // Peek at first 5 lines so we can log the detected structure
+  const firstLines = await new Promise<string[]>((resolve, reject) => {
+    const lines: string[] = [];
+    fs.createReadStream(filePath)
+      .on('data', (chunk: Buffer) => {
+        chunk.toString().split('\n').forEach(l => lines.push(l));
+      })
+      .on('end', () => resolve(lines.slice(0, 5)))
+      .on('error', reject);
+  });
+  console.log('[CSV] First 5 raw lines:', firstLines);
 
   await new Promise<void>((resolve, reject) => {
     fs.createReadStream(filePath)
       .pipe(
         csvParser({
-          skipLines: 1, // Coinbase CSVs start with a user metadata line; line 2 is the real header
+          // Coinbase CSVs have 3 metadata rows before the real header:
+          //   line 1: blank
+          //   line 2: "Transactions,,,..."
+          //   line 3: "User,<name>,<id>,..."
+          //   line 4: "ID,Timestamp,Transaction Type,..." ← real headers
+          skipLines: 3,
           mapHeaders: ({ header }) => header.trim(),
           mapValues: ({ value }) => value.trim(),
         })
       )
+      .on('headers', (headers: string[]) => {
+        console.log('[CSV] Detected headers:', headers);
+      })
       .on('data', (row: Record<string, string>) => {
-        if (!row['ID']) return;
+        rawLineCount++;
+        if (!row['ID']) {
+          console.log(`[CSV] Skipping row ${rawLineCount} — no ID field. Keys: ${Object.keys(row).slice(0, 4).join(', ')}`);
+          return;
+        }
         rows.push(row as unknown as CoinbaseRow);
       })
-      .on('end', resolve)
+      .on('end', () => {
+        console.log(`[CSV] Total raw data rows seen: ${rawLineCount}, rows kept: ${rows.length}`);
+        resolve();
+      })
       .on('error', reject);
   });
 
@@ -76,6 +103,14 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
     let salesInserted = 0;
     let incomeInserted = 0;
     let unmatchedInserted = 0;
+
+    // Log a frequency table of transaction types before processing
+    const typeCounts: Record<string, number> = {};
+    for (const row of rows) {
+      const t = row['Transaction Type'] || '(empty)';
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    }
+    console.log('[CSV] Transaction type breakdown:', typeCounts);
 
     for (const row of rows) {
       const txType = (row['Transaction Type'] || '').trim();
@@ -224,8 +259,13 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
       unmatchedInserted++;
     }
 
+    console.log(`[CSV] Insertions — lots: ${lotsInserted}, sales: ${salesInserted}, income: ${incomeInserted}, unmatched: ${unmatchedInserted}`);
+
     // Run the HIFO matching engine after all data is inserted
+    console.log('[HIFO] Running matching engine...');
     await client.query('SELECT run_hifo_matching_engine()');
+    const { rows: matchedRows } = await client.query('SELECT COUNT(*) AS count FROM matched_trades');
+    console.log(`[HIFO] Matched trades created: ${matchedRows[0].count}`);
 
     await client.query('COMMIT');
 
