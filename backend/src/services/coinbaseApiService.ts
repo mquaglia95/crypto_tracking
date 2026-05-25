@@ -54,15 +54,38 @@ async function apiGet(keyName: string, privateKeyPem: string, path: string): Pro
   return res.json();
 }
 
-async function paginate(key: string, secret: string, startPath: string): Promise<any[]> {
+// Advanced Trade API uses cursor-based pagination.
+// accounts endpoint: has_next + cursor
+// fills endpoint: non-empty cursor string means more pages
+async function paginateAccounts(keyName: string, pem: string): Promise<any[]> {
   const all: any[] = [];
-  let path: string | null = startPath;
+  let cursor = '';
 
-  while (path) {
-    const { data, pagination } = await apiGet(key, secret, path);
-    all.push(...(data ?? []));
-    path = pagination?.next_uri ?? null;
-  }
+  do {
+    const path = cursor
+      ? `/api/v3/brokerage/accounts?limit=250&cursor=${encodeURIComponent(cursor)}`
+      : '/api/v3/brokerage/accounts?limit=250';
+    const data = await apiGet(keyName, pem, path);
+    all.push(...(data.accounts ?? []));
+    cursor = data.has_next ? (data.cursor ?? '') : '';
+  } while (cursor);
+
+  return all;
+}
+
+async function paginateFills(keyName: string, pem: string): Promise<any[]> {
+  const all: any[] = [];
+  let cursor = '';
+
+  do {
+    const path = cursor
+      ? `/api/v3/brokerage/orders/historical/fills?limit=250&cursor=${encodeURIComponent(cursor)}`
+      : '/api/v3/brokerage/orders/historical/fills?limit=250';
+    const data = await apiGet(keyName, pem, path);
+    all.push(...(data.fills ?? []));
+    // Empty string cursor means no more pages
+    cursor = data.cursor ?? '';
+  } while (cursor);
 
   return all;
 }
@@ -76,144 +99,72 @@ export interface SyncSummary {
 }
 
 export async function syncFromCoinbase(apiKey: string, apiSecret: string): Promise<SyncSummary> {
-  // Fetch all wallet accounts
-  const accounts = await paginate(apiKey, apiSecret, '/v2/accounts?limit=100');
+  // Verify credentials work by fetching accounts (also used for accounts_scanned count)
+  const accounts = await paginateAccounts(apiKey, apiSecret);
 
-  const allTransactions: any[] = [];
+  // Fetch all filled orders (buys & sells) via Advanced Trade API.
+  // Note: staking income is not available through this API — use CSV upload for that.
+  const fills = await paginateFills(apiKey, apiSecret);
 
-  for (const account of accounts) {
-    // Skip fiat (USD, EUR, etc.) — only crypto accounts have taxable events
-    if (account.type === 'fiat' || account.currency?.code === 'USD') continue;
-
-    const txns = await paginate(
-      apiKey,
-      apiSecret,
-      `/v2/accounts/${account.id}/transactions?limit=100&expand[]=buy&expand[]=sell`
-    );
-    allTransactions.push(...txns);
-  }
-
-  // Sort chronologically before inserting so the HIFO engine processes them in order
-  allTransactions.sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  // Sort chronologically so HIFO engine processes lots before their matched sales
+  fills.sort((a, b) => new Date(a.trade_time).getTime() - new Date(b.trade_time).getTime());
 
   const client = await pool.connect();
   let lots = 0;
   let sales = 0;
-  let income = 0;
+  const income = 0;
   let skipped = 0;
 
   try {
     await client.query('BEGIN');
 
-    // Wipe existing data and rebuild from scratch on every sync
     await client.query('DELETE FROM unmatched_transactions');
     await client.query('DELETE FROM income_events');
     await client.query('DELETE FROM crypto_sales');
     await client.query('DELETE FROM tax_lots');
 
-    for (const tx of allTransactions) {
-      // Only process completed transactions
-      if (tx.status !== 'completed') {
+    for (const fill of fills) {
+      // product_id is "BTC-USD" or "ETH-USDC" — base asset is before the dash
+      const productId: string = fill.product_id ?? '';
+      const asset = productId.split('-')[0];
+      if (!asset) { skipped++; continue; }
+
+      const qty       = parseFloat(fill.size ?? '0');
+      const quoteAmt  = parseFloat(fill.size_in_quote ?? '0');   // total before fees
+      const commission = parseFloat(fill.commission ?? '0');
+      const timestamp  = new Date(fill.trade_time);
+      const fillId     = fill.fill_id;
+
+      if (!fillId || qty <= 0) { skipped++; continue; }
+
+      if (fill.side === 'BUY') {
+        const totalCost    = quoteAmt + commission;
+        const pricePerUnit = qty > 0 ? totalCost / qty : 0;
+
+        const r = await client.query(
+          `INSERT INTO tax_lots
+             (transaction_id, asset_symbol, buy_timestamp, initial_qty, remaining_qty, price_per_unit, total_cost_usd)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           ON CONFLICT (transaction_id) DO NOTHING`,
+          [fillId, asset, timestamp, qty, qty, pricePerUnit, totalCost]
+        );
+        r.rowCount ? lots++ : skipped++;
+
+      } else if (fill.side === 'SELL') {
+        const proceeds     = quoteAmt - commission;
+        const pricePerUnit = qty > 0 ? proceeds / qty : 0;
+
+        const r = await client.query(
+          `INSERT INTO crypto_sales
+             (transaction_id, asset_symbol, sell_timestamp, qty, price_per_unit, total_proceeds_usd)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (transaction_id) DO NOTHING`,
+          [fillId, asset, timestamp, qty, pricePerUnit, proceeds]
+        );
+        r.rowCount ? sales++ : skipped++;
+
+      } else {
         skipped++;
-        continue;
-      }
-
-      const asset: string = tx.amount?.currency;
-      if (!asset || asset === 'USD') {
-        skipped++;
-        continue;
-      }
-
-      const qty = parseFloat(tx.amount?.amount ?? '0');
-      const nativeAmt = parseFloat(tx.native_amount?.amount ?? '0');
-      const timestamp = new Date(tx.created_at);
-
-      switch (tx.type) {
-        case 'buy': {
-          if (qty <= 0) { skipped++; break; }
-
-          // Prefer the expanded buy.total (exact amount paid including fees).
-          // Fall back to |native_amount| which Coinbase also populates with total cost.
-          const totalCost = tx.buy?.total?.amount
-            ? parseFloat(tx.buy.total.amount)
-            : Math.abs(nativeAmt);
-          const pricePerUnit = qty > 0 ? totalCost / qty : 0;
-
-          await client.query(
-            `INSERT INTO tax_lots
-               (transaction_id, asset_symbol, buy_timestamp, initial_qty, remaining_qty, price_per_unit, total_cost_usd)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [tx.id, asset, timestamp, qty, qty, pricePerUnit, totalCost]
-          );
-          lots++;
-          break;
-        }
-
-        case 'sell': {
-          const absQty = Math.abs(qty);
-          if (absQty <= 0) { skipped++; break; }
-
-          // Prefer expanded sell.total (net proceeds after fees).
-          const proceeds = tx.sell?.total?.amount
-            ? parseFloat(tx.sell.total.amount)
-            : Math.abs(nativeAmt);
-          const pricePerUnit = absQty > 0 ? proceeds / absQty : 0;
-
-          await client.query(
-            `INSERT INTO crypto_sales
-               (transaction_id, asset_symbol, sell_timestamp, qty, price_per_unit, total_proceeds_usd)
-             VALUES ($1,$2,$3,$4,$5,$6)`,
-            [tx.id, asset, timestamp, absQty, pricePerUnit, proceeds]
-          );
-          sales++;
-          break;
-        }
-
-        case 'staking_reward':
-        case 'interest':
-        case 'rewards_income': {
-          if (qty <= 0 || nativeAmt <= 0) { skipped++; break; }
-
-          await client.query(
-            `INSERT INTO income_events
-               (transaction_id, asset_symbol, event_timestamp, qty, value_usd, income_type)
-             VALUES ($1,$2,$3,$4,$5,$6)`,
-            [tx.id, asset, timestamp, qty, nativeAmt, tx.type]
-          );
-          income++;
-          break;
-        }
-
-        // Non-taxable wallet movements
-        case 'send':
-        case 'receive':
-        case 'pro_withdrawal':
-        case 'pro_deposit':
-        case 'exchange_withdrawal':
-        case 'exchange_deposit':
-        case 'transfer':
-          skipped++;
-          break;
-
-        default:
-          // Log anything unrecognized for manual review
-          await client.query(
-            `INSERT INTO unmatched_transactions
-               (transaction_id, raw_timestamp, transaction_type, asset, quantity, notes, reason)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [
-              tx.id,
-              tx.created_at,
-              tx.type,
-              asset,
-              qty.toString(),
-              tx.description ?? null,
-              `Unknown Coinbase API transaction type: ${tx.type}`,
-            ]
-          );
-          skipped++;
       }
     }
 
