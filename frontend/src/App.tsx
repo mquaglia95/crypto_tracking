@@ -5,10 +5,11 @@ import DashboardStats from './components/DashboardStats';
 import TaxTable from './components/TaxTable';
 import TaxLotsTable from './components/TaxLotsTable';
 import IncomeTable from './components/IncomeTable';
+import PortfolioChart from './components/PortfolioChart';
 import { TaxRecord, TaxSummary, TaxLot, IncomeEvent } from './types';
 import { API_BASE } from './api';
 
-type Tab = 'report' | 'lots' | 'income';
+type Tab = 'report' | 'lots' | 'income' | 'portfolio';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('report');
@@ -53,6 +54,7 @@ export default function App() {
     { id: 'report', label: 'Tax Report (Form 8949)' },
     { id: 'lots', label: 'Open Lots' },
     { id: 'income', label: 'Income' },
+    { id: 'portfolio', label: 'Portfolio' },
   ];
 
   return (
@@ -93,9 +95,10 @@ export default function App() {
           </nav>
         </div>
 
-        {activeTab === 'report' && <TaxTable records={records} loading={loadingReport} />}
-        {activeTab === 'lots'   && <TaxLotsTable lots={lots} loading={loadingLots} />}
-        {activeTab === 'income' && <IncomeTable events={income} loading={loadingIncome} />}
+        {activeTab === 'report'    && <TaxTable records={records} loading={loadingReport} />}
+        {activeTab === 'lots'      && <TaxLotsTable lots={lots} loading={loadingLots} />}
+        {activeTab === 'income'    && <IncomeTable events={income} loading={loadingIncome} />}
+        {activeTab === 'portfolio' && <PortfolioChart />}
       </main>
     </div>
   );

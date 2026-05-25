@@ -108,6 +108,26 @@ router.get('/income', async (_req: Request, res: Response): Promise<void> => {
   }
 });
 
+// GET /api/portfolio-events
+// Returns all buy and sell events in chronological order so the frontend can
+// reconstruct the quantity held for each asset at any point in time.
+router.get('/portfolio-events', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT asset_symbol, buy_timestamp AS timestamp, initial_qty AS qty, 'buy' AS event_type
+      FROM tax_lots
+      UNION ALL
+      SELECT asset_symbol, sell_timestamp AS timestamp, qty, 'sell' AS event_type
+      FROM crypto_sales
+      ORDER BY timestamp ASC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Portfolio events error:', err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // GET /api/unmatched
 // Returns transactions flagged for manual review.
 router.get('/unmatched', async (_req: Request, res: Response): Promise<void> => {
