@@ -195,7 +195,7 @@ export default function PortfolioChart() {
   const [eventsLoading, setEventsLoading] = useState(true);
   const [pricesLoading, setPricesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [priceWarning, setPriceWarning] = useState<string | null>(null);
+  const [pricedAssets, setPricedAssets] = useState<Set<string>>(new Set());
 
   // Fetch buy/sell events once on mount
   useEffect(() => {
@@ -258,7 +258,6 @@ export default function PortfolioChart() {
 
     // USD mode: fetch historical prices from CoinGecko sequentially to avoid rate limits
     setPricesLoading(true);
-    setPriceWarning(null);
     const days = rangeToDays(range, firstPurchase);
 
     (async () => {
@@ -269,34 +268,23 @@ export default function PortfolioChart() {
         // Step 2: fetch price history for each asset sequentially with a delay
         // to avoid CoinGecko's free-tier rate limit
         const priceArrays: Record<string, [number, number][]> = {};
-        const failed: string[] = [];
 
         for (const asset of assets) {
           const id = symbolToId[asset];
-          if (!id) { failed.push(asset); continue; }
+          if (!id) continue;
           try {
             const r = await fetch(
               `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
             );
             const data = await r.json();
-            if (Array.isArray(data.prices)) {
-              priceArrays[asset] = data.prices;
-            } else {
-              failed.push(asset);
-            }
-          } catch {
-            failed.push(asset);
-          }
-          // Pause between requests to stay under the free-tier rate limit
+            if (Array.isArray(data.prices)) priceArrays[asset] = data.prices;
+          } catch { /* silently skip unpriceable coins */ }
           await new Promise(res => setTimeout(res, 400));
         }
 
-        if (failed.length) {
-          setPriceWarning(`Price history unavailable for: ${failed.join(', ')} — these coins are hidden in $ Value mode`);
-        }
+        setPricedAssets(new Set(Object.keys(priceArrays)));
 
-        // Step 3: build chart data — use null (not 0) for coins with no price data
-        // so recharts renders a gap instead of a misleading flat line at $0
+        // Step 3: build chart data — use null for coins with no price data
         setChartData(points.map((pt, i) => {
           const row: ChartPoint = { label: pt.toISOString(), ts: pt.getTime() };
           for (const asset of assets) {
@@ -373,30 +361,28 @@ export default function PortfolioChart() {
         </div>
       </div>
 
-      {/* Coin filter chips */}
+      {/* Coin filter chips — in USD mode only show coins that have price data */}
       <div className="flex flex-wrap gap-2 mb-4">
-        {assets.map((asset, i) => {
-          const hidden = hiddenAssets.has(asset);
-          return (
-            <button
-              key={asset}
-              onClick={() => toggleAsset(asset)}
-              style={hidden ? undefined : { backgroundColor: COLORS[i % COLORS.length], borderColor: COLORS[i % COLORS.length] }}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                hidden
-                  ? 'bg-white text-brand-mid border-brand-mid/40'
-                  : 'text-white'
-              }`}
-            >
-              {asset}
-            </button>
-          );
-        })}
+        {assets
+          .filter(asset => yMode === 'QTY' || pricesLoading || pricedAssets.has(asset))
+          .map((asset, i) => {
+            const hidden = hiddenAssets.has(asset);
+            return (
+              <button
+                key={asset}
+                onClick={() => toggleAsset(asset)}
+                style={hidden ? undefined : { backgroundColor: COLORS[i % COLORS.length], borderColor: COLORS[i % COLORS.length] }}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                  hidden
+                    ? 'bg-white text-brand-mid border-brand-mid/40'
+                    : 'text-white'
+                }`}
+              >
+                {asset}
+              </button>
+            );
+          })}
       </div>
-
-      {!pricesLoading && priceWarning && (
-        <p className="text-xs text-brand-clay mb-2">{priceWarning}</p>
-      )}
 
       {/* Chart */}
       <div className="relative bg-white rounded-xl border border-brand-mid/40 p-4">
