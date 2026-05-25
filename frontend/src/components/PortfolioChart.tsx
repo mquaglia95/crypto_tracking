@@ -86,6 +86,46 @@ function fmtAxisY(v: number, mode: YMode): string {
   return v.toLocaleString('en-US', { maximumFractionDigits: 6 });
 }
 
+interface TooltipProps {
+  active?: boolean;
+  payload?: { name: string; value: number | null; color: string }[];
+  label?: string;
+  yMode: YMode;
+  range: Range;
+}
+
+function SortedTooltip({ active, payload, label, yMode, range }: TooltipProps) {
+  if (!active || !payload?.length) return null;
+
+  const items = [...payload]
+    .filter(p => p.value !== null && p.value !== undefined)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+  const d = new Date(String(label));
+  const dateLabel = range === '1D'
+    ? d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+
+  return (
+    <div className="bg-white border border-brand-mid/30 rounded-lg shadow-md p-3 text-xs min-w-[160px]">
+      <p className="font-medium text-brand-dark mb-2">{dateLabel}</p>
+      {items.map(({ name, value, color }) => (
+        <div key={name} className="flex items-center justify-between gap-4 py-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+            <span className="text-brand-dark">{name}</span>
+          </span>
+          <span className="font-medium text-brand-dark tabular-nums">
+            {yMode === 'USD'
+              ? `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 8 })}`
+              : Number(value).toLocaleString('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 8 })}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function rangeToDays(range: Range, firstPurchase: Date): number {
   switch (range) {
     case '1D':  return 1;
@@ -341,21 +381,7 @@ export default function PortfolioChart() {
               tickFormatter={v => fmtAxisY(Number(v), yMode)}
               width={72}
             />
-            <Tooltip
-              formatter={(value: unknown, name?: string | number) => [
-                yMode === 'USD'
-                  ? `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 8 })}`
-                  : Number(value).toLocaleString('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 8 }),
-                name ?? '',
-              ]}
-              labelFormatter={label => {
-                const d = new Date(String(label));
-                return range === '1D'
-                  ? d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                  : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-              }}
-              contentStyle={{ fontSize: 12 }}
-            />
+            <Tooltip content={<SortedTooltip yMode={yMode} range={range} />} />
             {assets.map((asset, i) => (
               <Line
                 key={asset}
