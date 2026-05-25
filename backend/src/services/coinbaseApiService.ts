@@ -3,21 +3,46 @@ import pool from '../config/database';
 
 const COINBASE_BASE = 'https://api.coinbase.com';
 
-function makeSignature(secret: string, timestamp: string, method: string, path: string): string {
-  return crypto
-    .createHmac('sha256', secret)
-    .update(`${timestamp}${method.toUpperCase()}${path}`)
-    .digest('hex');
+// Builds a CDP JWT for the Coinbase Advanced Trade / v2 API.
+// keyName:       organizations/{org_id}/apiKeys/{key_id}
+// privateKeyPem: EC private key PEM — escaped \n sequences are normalized automatically.
+function makeJWT(keyName: string, privateKeyPem: string, method: string, path: string): string {
+  const uri = `${method.toUpperCase()} api.coinbase.com${path}`;
+  const now = Math.floor(Date.now() / 1000);
+
+  const header = Buffer.from(JSON.stringify({
+    alg: 'ES256',
+    kid: keyName,
+    nonce: crypto.randomBytes(16).toString('hex'),
+  })).toString('base64url');
+
+  const payload = Buffer.from(JSON.stringify({
+    sub: keyName,
+    iss: 'cdp',
+    nbf: now,
+    exp: now + 120,
+    uri,
+  })).toString('base64url');
+
+  const signingInput = `${header}.${payload}`;
+
+  // Env vars often store newlines as the literal two-char sequence \n — fix that.
+  const pem = privateKeyPem.replace(/\\n/g, '\n');
+
+  const signature = crypto.sign('SHA256', Buffer.from(signingInput), {
+    key: pem,
+    dsaEncoding: 'ieee-p1363', // raw r||s required by JWT ES256
+  });
+
+  return `${signingInput}.${signature.toString('base64url')}`;
 }
 
-async function apiGet(key: string, secret: string, path: string): Promise<any> {
-  const ts = Math.floor(Date.now() / 1000).toString();
+async function apiGet(keyName: string, privateKeyPem: string, path: string): Promise<any> {
+  const jwt = makeJWT(keyName, privateKeyPem, 'GET', path);
   const res = await fetch(`${COINBASE_BASE}${path}`, {
     headers: {
-      'CB-ACCESS-KEY': key,
-      'CB-ACCESS-SIGN': makeSignature(secret, ts, 'GET', path),
-      'CB-ACCESS-TIMESTAMP': ts,
-      'CB-ACCESS-VERSION': '2016-02-18',
+      'Authorization': `Bearer ${jwt}`,
+      'Content-Type': 'application/json',
     },
   });
 
