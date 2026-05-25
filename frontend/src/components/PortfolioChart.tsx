@@ -126,6 +126,54 @@ function SortedTooltip({ active, payload, label, yMode, range }: TooltipProps) {
   );
 }
 
+// Hardcoded CoinGecko IDs for common coins — avoids depending on the
+// /coins/markets API call which rate-limits aggressively on the free tier.
+const KNOWN_IDS: Record<string, string> = {
+  BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',
+  XRP: 'ripple', DOGE: 'dogecoin', SHIB: 'shiba-inu', PEPE: 'pepe',
+  LINK: 'chainlink', DOT: 'polkadot', USDC: 'usd-coin', USDT: 'tether',
+  MATIC: 'matic-network', AVAX: 'avalanche-2', UNI: 'uniswap',
+  LTC: 'litecoin', ADA: 'cardano', ATOM: 'cosmos', ZEC: 'zcash',
+  MORPHO: 'morpho', ONDO: 'ondo-finance', HYPE: 'hyperliquid',
+  PENGU: 'pudgy-penguins', PNUT: 'peanut-the-squirrel',
+  XYO: 'xyo-network', BILL: 'bill-murray-meme',
+};
+
+const MARKETS_CACHE_KEY = 'cg_markets_symbolToId';
+const MARKETS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+async function getSymbolToId(): Promise<Record<string, string>> {
+  // Start with hardcoded map
+  const result: Record<string, string> = { ...KNOWN_IDS };
+
+  // Try cache first
+  try {
+    const raw = sessionStorage.getItem(MARKETS_CACHE_KEY);
+    if (raw) {
+      const { ts, data } = JSON.parse(raw);
+      if (Date.now() - ts < MARKETS_CACHE_TTL) return { ...result, ...data };
+    }
+  } catch { /* ignore */ }
+
+  // Fetch from CoinGecko and cache result
+  try {
+    const r = await fetch(
+      'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=500&page=1'
+    );
+    const markets: { symbol: string; id: string }[] = await r.json();
+    if (Array.isArray(markets)) {
+      const fetched: Record<string, string> = {};
+      for (const c of markets) fetched[c.symbol.toUpperCase()] = c.id;
+      try {
+        sessionStorage.setItem(MARKETS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: fetched }));
+      } catch { /* ignore storage errors */ }
+      return { ...result, ...fetched };
+    }
+  } catch { /* fall back to hardcoded map */ }
+
+  return result;
+}
+
 function rangeToDays(range: Range, firstPurchase: Date): number {
   switch (range) {
     case '1D':  return 1;
@@ -215,19 +263,8 @@ export default function PortfolioChart() {
 
     (async () => {
       try {
-        // Step 1: get symbol → CoinGecko id mapping
-        let symbolToId: Record<string, string> = {};
-        try {
-          const r = await fetch(
-            'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=500&page=1'
-          );
-          const markets: { symbol: string; id: string }[] = await r.json();
-          if (Array.isArray(markets)) {
-            for (const c of markets) symbolToId[c.symbol.toUpperCase()] = c.id;
-          }
-        } catch {
-          // If the markets list fails, we'll just get no price data below
-        }
+        // Step 1: get symbol → CoinGecko id mapping (hardcoded + API + cache)
+        const symbolToId = await getSymbolToId();
 
         // Step 2: fetch price history for each asset sequentially with a delay
         // to avoid CoinGecko's free-tier rate limit
