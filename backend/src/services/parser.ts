@@ -48,7 +48,7 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
   const firstLines = await new Promise<string[]>((resolve, reject) => {
     const lines: string[] = [];
     fs.createReadStream(filePath)
-      .on('data', (chunk: Buffer) => {
+      .on('data', (chunk: Buffer | string) => {
         chunk.toString().split('\n').forEach(l => lines.push(l));
       })
       .on('end', () => resolve(lines.slice(0, 5)))
