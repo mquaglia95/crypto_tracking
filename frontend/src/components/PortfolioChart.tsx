@@ -18,7 +18,7 @@ interface PortfolioEvent {
 interface ChartPoint {
   label: string;
   ts: number;
-  [asset: string]: number | string;
+  [asset: string]: number | string | null;
 }
 
 const COLORS = [
@@ -102,11 +102,12 @@ export default function PortfolioChart() {
   const [assets, setAssets] = useState<string[]>([]);
   const [hiddenAssets, setHiddenAssets] = useState<Set<string>>(new Set());
   const [range, setRange] = useState<Range>('1M');
-  const [yMode, setYMode] = useState<YMode>('USD');
+  const [yMode, setYMode] = useState<YMode>('QTY');
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [pricesLoading, setPricesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [priceWarning, setPriceWarning] = useState<string | null>(null);
 
   // Fetch buy/sell events once on mount
   useEffect(() => {
@@ -167,40 +168,71 @@ export default function PortfolioChart() {
       return;
     }
 
-    // USD mode: fetch historical prices from CoinGecko
+    // USD mode: fetch historical prices from CoinGecko sequentially to avoid rate limits
     setPricesLoading(true);
+    setPriceWarning(null);
     const days = rangeToDays(range, firstPurchase);
 
-    fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=500&page=1')
-      .then(r => r.json())
-      .then(async (markets: { symbol: string; id: string }[]) => {
-        const symbolToId: Record<string, string> = {};
-        for (const c of markets) symbolToId[c.symbol.toUpperCase()] = c.id;
+    (async () => {
+      try {
+        // Step 1: get symbol → CoinGecko id mapping
+        let symbolToId: Record<string, string> = {};
+        try {
+          const r = await fetch(
+            'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=500&page=1'
+          );
+          const markets: { symbol: string; id: string }[] = await r.json();
+          if (Array.isArray(markets)) {
+            for (const c of markets) symbolToId[c.symbol.toUpperCase()] = c.id;
+          }
+        } catch {
+          // If the markets list fails, we'll just get no price data below
+        }
 
+        // Step 2: fetch price history for each asset sequentially with a delay
+        // to avoid CoinGecko's free-tier rate limit
         const priceArrays: Record<string, [number, number][]> = {};
-        await Promise.allSettled(
-          assets.map(async asset => {
-            const id = symbolToId[asset];
-            if (!id) return;
-            const data = await fetch(
-              `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
-            ).then(r => r.json());
-            if (data.prices) priceArrays[asset] = data.prices;
-          })
-        );
+        const failed: string[] = [];
 
+        for (const asset of assets) {
+          const id = symbolToId[asset];
+          if (!id) { failed.push(asset); continue; }
+          try {
+            const r = await fetch(
+              `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
+            );
+            const data = await r.json();
+            if (Array.isArray(data.prices)) {
+              priceArrays[asset] = data.prices;
+            } else {
+              failed.push(asset);
+            }
+          } catch {
+            failed.push(asset);
+          }
+          // Pause between requests to stay under the free-tier rate limit
+          await new Promise(res => setTimeout(res, 400));
+        }
+
+        if (failed.length) {
+          setPriceWarning(`Price history unavailable for: ${failed.join(', ')} — these coins are hidden in $ Value mode`);
+        }
+
+        // Step 3: build chart data — use null (not 0) for coins with no price data
+        // so recharts renders a gap instead of a misleading flat line at $0
         setChartData(points.map((pt, i) => {
           const row: ChartPoint = { label: pt.toISOString(), ts: pt.getTime() };
           for (const asset of assets) {
             const qty = qtyAtPoint[i][asset];
             const priceData = priceArrays[asset];
-            row[asset] = priceData ? qty * closestPrice(priceData, pt.getTime()) : 0;
+            row[asset] = priceData ? qty * closestPrice(priceData, pt.getTime()) : null;
           }
           return row;
         }));
-      })
-      .catch(() => setError('Failed to load price history from CoinGecko'))
-      .finally(() => setPricesLoading(false));
+      } finally {
+        setPricesLoading(false);
+      }
+    })();
   }, [events, assets, range, yMode]);
 
   const toggleAsset = (asset: string) => {
@@ -286,7 +318,10 @@ export default function PortfolioChart() {
       </div>
 
       {pricesLoading && (
-        <p className="text-xs text-brand-mid mb-2 animate-pulse">Loading price history…</p>
+        <p className="text-xs text-brand-mid mb-2 animate-pulse">Loading price history… (fetching one coin at a time to avoid rate limits)</p>
+      )}
+      {!pricesLoading && priceWarning && (
+        <p className="text-xs text-brand-clay mb-2">{priceWarning}</p>
       )}
 
       {/* Chart */}
