@@ -57,8 +57,6 @@ function generatePoints(start: Date, range: Range): Date[] {
 
 function closestPrice(prices: [number, number][], ts: number): number | null {
   if (!prices.length) return null;
-  // Don't extrapolate before the coin existed or after the last known price
-  if (ts < prices[0][0] - DAY_MS || ts > prices[prices.length - 1][0] + DAY_MS) return null;
   let lo = 0, hi = prices.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
