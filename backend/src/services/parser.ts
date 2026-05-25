@@ -61,12 +61,13 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
     fs.createReadStream(filePath)
       .pipe(
         csvParser({
-          // Coinbase CSVs have 3 metadata rows before the real header:
-          //   line 1: blank
-          //   line 2: "Transactions,,,..."
-          //   line 3: "User,<name>,<id>,..."
-          //   line 4: "ID,Timestamp,Transaction Type,..." ← real headers
-          skipLines: 3,
+          // Coinbase CSVs have 4 metadata rows before the real header (format updated 2026):
+          //   line 1: export-id (e.g. "fee1e7f3-..._csv")
+          //   line 2: blank
+          //   line 3: "Transactions,,,..."
+          //   line 4: "User,<name>,<id>,..."
+          //   line 5: "ID,Timestamp,Transaction Type,..." ← real headers
+          skipLines: 4,
           mapHeaders: ({ header }) => header.trim(),
           mapValues: ({ value }) => value.trim(),
         })
