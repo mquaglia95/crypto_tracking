@@ -344,8 +344,8 @@ export default function PortfolioChart() {
             <Tooltip
               formatter={(value: unknown, name?: string | number) => [
                 yMode === 'USD'
-                  ? `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  : Number(value).toLocaleString('en-US', { maximumFractionDigits: 8 }),
+                  ? `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 8 })}`
+                  : Number(value).toLocaleString('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 8 }),
                 name ?? '',
               ]}
               labelFormatter={label => {
