@@ -40,6 +40,7 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
   sales: number;
   income: number;
   unmatched: number;
+  skipped: number;
 }> {
   const rows: CoinbaseRow[] = [];
   let rawLineCount = 0;
@@ -93,16 +94,11 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
   try {
     await client.query('BEGIN');
 
-    // Clear existing data before re-ingestion
-    await client.query('DELETE FROM unmatched_transactions');
-    await client.query('DELETE FROM income_events');
-    await client.query('DELETE FROM crypto_sales');
-    await client.query('DELETE FROM tax_lots');
-
     let lotsInserted = 0;
     let salesInserted = 0;
     let incomeInserted = 0;
     let unmatchedInserted = 0;
+    let skipped = 0;
 
     // Log a frequency table of transaction types before processing
     const typeCounts: Record<string, number> = {};
@@ -124,12 +120,13 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
       // --- Staking Income / Rewards ---
       if (txType === 'Staking Income' || txType === 'Learning Reward' || txType === 'Rewards Income') {
         if (asset && qty > 0 && total > 0) {
-          await client.query(
+          const r = await client.query(
             `INSERT INTO income_events (transaction_id, asset_symbol, event_timestamp, qty, value_usd, income_type)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (transaction_id) DO NOTHING`,
             [txId, asset, timestamp, qty, total, txType]
           );
-          incomeInserted++;
+          r.rowCount ? incomeInserted++ : skipped++;
         }
         continue;
       }
@@ -149,12 +146,13 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
           const absTotal = Math.abs(total);
           const salePrice = absQty > 0 ? absTotal / absQty : priceAtTx;
 
-          await client.query(
+          const r = await client.query(
             `INSERT INTO crypto_sales (transaction_id, asset_symbol, sell_timestamp, qty, price_per_unit, total_proceeds_usd)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (transaction_id) DO NOTHING`,
             [txId, asset, timestamp, absQty, salePrice, absTotal]
           );
-          salesInserted++;
+          r.rowCount ? salesInserted++ : skipped++;
         } else if (qty > 0) {
           // Receiving the destination asset — parse from Notes if possible
           const destAsset = parseConvertDestAsset(row['Notes'], asset);
@@ -163,12 +161,13 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
           const costPerUnit = destQty > 0 ? costUsd / destQty : priceAtTx;
 
           if (destAsset) {
-            await client.query(
+            const r = await client.query(
               `INSERT INTO tax_lots (transaction_id, asset_symbol, buy_timestamp, initial_qty, remaining_qty, price_per_unit, total_cost_usd)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT (transaction_id) DO NOTHING`,
               [txId, destAsset, timestamp, destQty, destQty, costPerUnit, costUsd]
             );
-            lotsInserted++;
+            r.rowCount ? lotsInserted++ : skipped++;
           } else {
             await insertUnmatched(client, row, 'Convert: could not determine destination asset');
             unmatchedInserted++;
@@ -187,27 +186,24 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
         }
 
         if (qty > 0 && asset !== 'USDC' && asset !== 'USDT') {
-          // Receiving a token: create a tax lot
           const costUsd = Math.abs(total);
           const costPerUnit = qty > 0 ? costUsd / qty : priceAtTx;
-
-          await client.query(
+          const r = await client.query(
             `INSERT INTO tax_lots (transaction_id, asset_symbol, buy_timestamp, initial_qty, remaining_qty, price_per_unit, total_cost_usd)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (transaction_id) DO NOTHING`,
             [txId, asset, timestamp, qty, qty, costPerUnit, costUsd]
           );
-          lotsInserted++;
+          r.rowCount ? lotsInserted++ : skipped++;
         } else if (qty < 0 && (asset === 'USDC' || asset === 'USDT')) {
-          // Spending USDC/USDT to buy another token.
-          // USDC ≈ $1 so the gain/loss is minimal, but technically taxable.
-          // We record a sale of USDC at $1/unit.
           const absQty = Math.abs(qty);
-          await client.query(
+          const r = await client.query(
             `INSERT INTO crypto_sales (transaction_id, asset_symbol, sell_timestamp, qty, price_per_unit, total_proceeds_usd)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (transaction_id) DO NOTHING`,
             [txId, asset, timestamp, absQty, 1.0, absQty]
           );
-          salesInserted++;
+          r.rowCount ? salesInserted++ : skipped++;
         }
         continue;
       }
@@ -221,25 +217,24 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
         }
 
         if (qty < 0 && asset !== 'USDC' && asset !== 'USDT') {
-          // Selling a token
           const absQty = Math.abs(qty);
           const proceedsUsd = Math.abs(total);
           const salePrice = absQty > 0 ? proceedsUsd / absQty : priceAtTx;
-
-          await client.query(
+          const r = await client.query(
             `INSERT INTO crypto_sales (transaction_id, asset_symbol, sell_timestamp, qty, price_per_unit, total_proceeds_usd)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (transaction_id) DO NOTHING`,
             [txId, asset, timestamp, absQty, salePrice, proceedsUsd]
           );
-          salesInserted++;
+          r.rowCount ? salesInserted++ : skipped++;
         } else if (qty > 0 && (asset === 'USDC' || asset === 'USDT')) {
-          // Receiving USDC/USDT — create a lot at $1/unit for completeness
-          await client.query(
+          const r = await client.query(
             `INSERT INTO tax_lots (transaction_id, asset_symbol, buy_timestamp, initial_qty, remaining_qty, price_per_unit, total_cost_usd)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (transaction_id) DO NOTHING`,
             [txId, asset, timestamp, qty, qty, 1.0, qty]
           );
-          lotsInserted++;
+          r.rowCount ? lotsInserted++ : skipped++;
         }
         continue;
       }
@@ -259,22 +254,11 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
       unmatchedInserted++;
     }
 
-    console.log(`[CSV] Insertions — lots: ${lotsInserted}, sales: ${salesInserted}, income: ${incomeInserted}, unmatched: ${unmatchedInserted}`);
-
-    // Run the HIFO matching engine after all data is inserted
-    console.log('[HIFO] Running matching engine...');
-    await client.query('SELECT run_hifo_matching_engine()');
-    const { rows: matchedRows } = await client.query('SELECT COUNT(*) AS count FROM matched_trades');
-    console.log(`[HIFO] Matched trades created: ${matchedRows[0].count}`);
+    console.log(`[CSV] Insertions — lots: ${lotsInserted}, sales: ${salesInserted}, income: ${incomeInserted}, unmatched: ${unmatchedInserted}, skipped: ${skipped}`);
 
     await client.query('COMMIT');
 
-    return {
-      lots: lotsInserted,
-      sales: salesInserted,
-      income: incomeInserted,
-      unmatched: unmatchedInserted,
-    };
+    return { lots: lotsInserted, sales: salesInserted, income: incomeInserted, unmatched: unmatchedInserted, skipped };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

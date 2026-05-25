@@ -10,23 +10,48 @@ const router = Router();
 const upload = multer({ dest: path.join(__dirname, '../../uploads/') });
 
 // POST /api/upload
-// Accepts a Coinbase CSV, parses it, runs the HIFO engine, returns ingestion summary.
-router.post('/upload', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No file uploaded' });
+// Accepts one or more Coinbase CSVs. Existing transactions are skipped (deduped
+// by transaction_id), so overlapping date ranges across files are safe. HIFO
+// runs once after all files are ingested.
+router.post('/upload', upload.array('files', 20), async (req: Request, res: Response): Promise<void> => {
+  const files = req.files as Express.Multer.File[] | undefined;
+  if (!files || files.length === 0) {
+    res.status(400).json({ error: 'No files uploaded' });
     return;
   }
 
+  const perFile: { name: string; lots: number; sales: number; income: number; unmatched: number; skipped: number }[] = [];
+  const totals = { lots: 0, sales: 0, income: 0, unmatched: 0, skipped: 0 };
+
   try {
-    const summary = await ingestCoinbaseCSV(req.file.path);
-    res.json({ success: true, summary });
+    for (const file of files) {
+      const summary = await ingestCoinbaseCSV(file.path);
+      perFile.push({ name: file.originalname, ...summary });
+      totals.lots      += summary.lots;
+      totals.sales     += summary.sales;
+      totals.income    += summary.income;
+      totals.unmatched += summary.unmatched;
+      totals.skipped   += summary.skipped;
+    }
+
+    // Run HIFO once across all accumulated data
+    console.log('[HIFO] Running matching engine after all uploads...');
+    const client = await pool.connect();
+    try {
+      await client.query('SELECT run_hifo_matching_engine()');
+      const { rows } = await client.query('SELECT COUNT(*) AS count FROM matched_trades');
+      console.log(`[HIFO] Matched trades: ${rows[0].count}`);
+    } finally {
+      client.release();
+    }
+
+    res.json({ success: true, totals, files: perFile });
   } catch (err) {
     console.error('Ingestion error:', err);
     res.status(500).json({ error: (err as Error).message });
   } finally {
-    // Clean up the uploaded temp file
-    if (req.file?.path) {
-      fs.unlink(req.file.path, () => {});
+    for (const file of files) {
+      fs.unlink(file.path, () => {});
     }
   }
 });
