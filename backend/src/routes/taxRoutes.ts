@@ -133,6 +133,29 @@ router.get('/income', async (_req: Request, res: Response): Promise<void> => {
   }
 });
 
+// DELETE /api/reset
+// Wipes all ingested data and resets the dashboard to a blank state.
+router.delete('/reset', async (_req: Request, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM matched_trades');
+    await client.query('DELETE FROM unmatched_transactions');
+    await client.query('DELETE FROM income_events');
+    await client.query('DELETE FROM crypto_sales');
+    await client.query('DELETE FROM tax_lots');
+    await client.query('COMMIT');
+    console.log('[RESET] All data cleared');
+    res.json({ success: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Reset error:', err);
+    res.status(500).json({ error: (err as Error).message });
+  } finally {
+    client.release();
+  }
+});
+
 // GET /api/portfolio-events
 // Returns all buy and sell events in chronological order so the frontend can
 // reconstruct the quantity held for each asset at any point in time.

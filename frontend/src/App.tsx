@@ -12,7 +12,7 @@ import { API_BASE } from './api';
 type Tab = 'report' | 'lots' | 'income' | 'portfolio';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('report');
+  const [activeTab, setActiveTab] = useState<Tab>('portfolio');
   const [records, setRecords] = useState<TaxRecord[]>([]);
   const [summary, setSummary] = useState<TaxSummary | null>(null);
   const [lots, setLots] = useState<TaxLot[]>([]);
@@ -51,24 +51,49 @@ export default function App() {
   }, [fetchAll]);
 
   const tabs: { id: Tab; label: string }[] = [
+    { id: 'portfolio', label: 'Portfolio' },
     { id: 'report', label: 'Tax Report (Form 8949)' },
     { id: 'lots', label: 'Open Lots' },
     { id: 'income', label: 'Income' },
-    { id: 'portfolio', label: 'Portfolio' },
   ];
+
+  const [resetting, setResetting] = useState(false);
+
+  const handleReset = useCallback(async () => {
+    if (!window.confirm('This will permanently delete all uploaded data and reset the dashboard. Are you sure?')) return;
+    setResetting(true);
+    try {
+      await fetch(`${API_BASE}/api/reset`, { method: 'DELETE' });
+      setRecords([]);
+      setSummary(null);
+      setLots([]);
+      setIncome([]);
+    } finally {
+      setResetting(false);
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-brand-light">
       <header className="bg-white border-b border-brand-mid/40">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">📊</span>
-            <div>
-              <h1 className="text-lg font-bold text-brand-dark">Crypto HIFO Tax Tracker</h1>
-              <p className="text-xs text-brand-mid">
-                HIFO cost basis · IRS Form 8949 · Mid-year check anytime
-              </p>
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">📊</span>
+              <div>
+                <h1 className="text-lg font-bold text-brand-dark">Crypto HIFO Tax Tracker</h1>
+                <p className="text-xs text-brand-mid">
+                  HIFO cost basis · IRS Form 8949 · Mid-year check anytime
+                </p>
+              </div>
             </div>
+            <button
+              onClick={handleReset}
+              disabled={resetting}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-brand-clay/40 text-brand-clay hover:bg-brand-clay/10 disabled:opacity-50 transition-colors"
+            >
+              {resetting ? 'Clearing…' : 'Clear all data'}
+            </button>
           </div>
         </div>
       </header>
