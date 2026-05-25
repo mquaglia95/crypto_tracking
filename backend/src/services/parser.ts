@@ -48,28 +48,13 @@ export async function ingestCoinbaseCSV(filePath: string): Promise<{
     fs.createReadStream(filePath)
       .pipe(
         csvParser({
-          // The first row in Coinbase exports is user metadata, not headers.
-          // csv-parser uses the first data row as headers by default, so we
-          // skip the metadata row by checking for the real header row.
+          skipLines: 1, // Coinbase CSVs start with a user metadata line; line 2 is the real header
           mapHeaders: ({ header }) => header.trim(),
           mapValues: ({ value }) => value.trim(),
         })
       )
-      .on('headers', (headers: string[]) => {
-        // If the first "header" row is the user metadata line (starts with
-        // "Transactions"), we need to skip it and re-parse. csv-parser will
-        // treat the next row as the first data row with headers already set.
-        // This is handled by the skipLines approach below.
-      })
       .on('data', (row: Record<string, string>) => {
-        // Skip the user metadata row (identified by lacking an "ID" field
-        // that is a hex string, or having "Transactions" as a value)
-        if (!row['ID'] || row['ID'].toLowerCase().includes('transaction')) {
-          return;
-        }
-        // Skip the real header row if it somehow appears as data
-        if (row['ID'] === 'ID') return;
-
+        if (!row['ID']) return;
         rows.push(row as unknown as CoinbaseRow);
       })
       .on('end', resolve)
