@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import CSVUploader from './components/CSVUploader';
-import CoinbaseSync from './components/CoinbaseSync';
 import DashboardStats from './components/DashboardStats';
 import TaxTable from './components/TaxTable';
 import TaxLotsTable from './components/TaxLotsTable';
@@ -99,7 +98,6 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <CoinbaseSync onSyncComplete={fetchAll} />
         <CSVUploader onUploadComplete={fetchAll} />
         <DashboardStats summary={summary} loading={loadingSummary} />
 
