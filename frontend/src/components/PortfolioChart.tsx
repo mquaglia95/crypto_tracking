@@ -357,15 +357,21 @@ export default function PortfolioChart() {
         })}
       </div>
 
-      {pricesLoading && (
-        <p className="text-xs text-brand-mid mb-2 animate-pulse">Loading price history… (fetching one coin at a time to avoid rate limits)</p>
-      )}
       {!pricesLoading && priceWarning && (
         <p className="text-xs text-brand-clay mb-2">{priceWarning}</p>
       )}
 
       {/* Chart */}
-      <div className="bg-white rounded-xl border border-brand-mid/40 p-4">
+      <div className="relative bg-white rounded-xl border border-brand-mid/40 p-4">
+        {pricesLoading && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-xl bg-white/80 backdrop-blur-sm gap-3">
+            <svg className="animate-spin h-8 w-8 text-brand-dark" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <p className="text-xs text-brand-mid">Loading price history…</p>
+          </div>
+        )}
         <ResponsiveContainer width="100%" height={440}>
           <LineChart data={chartData} margin={{ top: 5, right: 24, left: 8, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
