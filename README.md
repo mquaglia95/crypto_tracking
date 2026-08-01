@@ -1,12 +1,12 @@
 # Crypto HIFO Tax Tracker
 
-**Live app:** [autotrackcrypto.netlify.app](https://autotrackcrypto.netlify.app/) — a personal dashboard for tracking crypto capital gains, open positions, staking income, and portfolio performance, hosted on Netlify (frontend) + Render (backend API) + Supabase (database). See [Deployment](#deployment) below for the full architecture.
+[autotrackcrypto.netlify.app](https://autotrackcrypto.netlify.app/) — a personal dashboard for tracking crypto capital gains, open positions, staking income, and portfolio performance, hosted on Netlify (frontend) + Render (backend API) + Supabase (database). See [Deployment](#deployment) below for the full architecture.
 
 A personal dashboard for tracking crypto capital gains, open positions, staking income, and portfolio performance. It uses **HIFO (Highest-In, First-Out)** cost basis — the IRS-allowed accounting method that minimizes taxable gains by matching your sales against your most expensive buy lots first.
 
-You feed it your transaction history by uploading a CSV exported from Coinbase. It parses every buy, sell, conversion, and staking reward, runs the HIFO matching engine, and presents everything in a clean dashboard.
+Feed it your transaction history by uploading a CSV exported from Coinbase. It parses every buy, sell, conversion, and staking reward, runs the HIFO matching engine, and presents everything in a clean dashboard.
 
-**Data input is CSV upload only.** There is no "connect your Coinbase account" option live in the app today — the codebase contains an unused, unwired Coinbase API-key sync component (`CoinbaseSync.tsx` / `coinbaseApiService.ts`), but it isn't rendered anywhere in the UI, so it currently has no effect. If you're looking for that feature, it needs to be wired into `App.tsx` first.
+Data input is CSV upload only. Direct connection to Coinbase is still in development.
 
 ---
 
@@ -87,7 +87,7 @@ Shows your **unrealized** positions — coins you currently hold that have not b
 | **Qty Remaining** | How much of this lot you still hold (may be less than what you originally bought if a partial sale was matched against it) |
 | **Cost / Unit** | What you paid per coin for this specific lot |
 | **Amount Paid** | Total cost of the remaining quantity |
-| **Worth Now** | Live market price from CoinGecko × quantity remaining. Shows **N/A** if CoinGecko can't be reached or the coin isn't in its top-500-by-market-cap list (there's no CoinCap fallback here, unlike the Portfolio tab) |
+| **Worth Now** | Live market price from CoinGecko × quantity remaining. Shows N/A if CoinGecko can't be reached or the coin isn't in its top-500-by-market-cap list |
 | **Unrealized P&L** | What you'd gain or lose if you sold right now. Also N/A when the price is unavailable |
 
 These lots are what the HIFO engine draws from when you record a future sale. The highest-cost lots are consumed first (ties broken by earliest purchase date).
@@ -137,7 +137,7 @@ HIFO is legal under IRS rules (specific identification method) and is the most t
 | Convert | The source asset is treated as a sale; the destination asset (parsed from the transaction's Notes field) gets a new lot. |
 | Staking Income / Learning Reward / Rewards Income | Logged as ordinary income at market value when received. |
 | Send / Receive / Transfer | Skipped — non-taxable wallet movements. |
-| Transaction with no asset name, or any unrecognized type | Flagged for manual review — stored in the database and counted in the post-upload summary ("N flagged"), but **there is currently no dashboard tab to browse these individually.** |
+| Transaction with no asset name, or any unrecognized type | Flagged for manual review — stored in the database and counted in the post-upload summary ("N flagged"). Browsing flagged rows individually in the dashboard is a planned improvement. |
 
 ---
 
