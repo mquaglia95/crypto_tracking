@@ -1,8 +1,12 @@
 # Crypto HIFO Tax Tracker
 
+[autotrackcrypto.netlify.app](https://autotrackcrypto.netlify.app/) — a personal dashboard for tracking crypto capital gains, open positions, staking income, and portfolio performance, hosted on Netlify (frontend) + Render (backend API) + Supabase (database). See [Deployment](#deployment) below for the full architecture.
+
 A personal dashboard for tracking crypto capital gains, open positions, staking income, and portfolio performance. It uses **HIFO (Highest-In, First-Out)** cost basis — the IRS-allowed accounting method that minimizes taxable gains by matching your sales against your most expensive buy lots first.
 
-You feed it your transaction history by uploading a CSV exported from Coinbase. It parses every buy, sell, conversion, and staking reward, runs the HIFO matching engine, and presents everything in a clean dashboard.
+Feed it your transaction history by uploading a CSV exported from Coinbase. It parses every buy, sell, conversion, and staking reward, runs the HIFO matching engine, and presents everything in a clean dashboard.
+
+Data input is CSV upload only. Direct connection to Coinbase is still in development.
 
 ---
 
@@ -15,7 +19,7 @@ You feed it your transaction history by uploading a CSV exported from Coinbase. 
 
 **Upload:**
 - Drag and drop the `.csv` file onto the upload zone at the top of the dashboard, or click to browse.
-- You can upload multiple CSVs at once (e.g., one per year). Duplicate transactions are automatically skipped.
+- You can upload multiple CSVs at once (e.g., one per year). Duplicate transactions (matched by Coinbase's transaction ID) are automatically skipped, so overlapping date ranges across files are safe.
 - After upload, all tabs update immediately with the latest data.
 
 ---
@@ -42,7 +46,7 @@ A line chart showing how your holdings have changed over time. This is the first
 **Time range buttons** (top right): Filter the chart to the last 1 day, 1 week, 1 month, 1 quarter, 1 year, or your full history.
 
 **$ Value / # Coins toggle**: Switch the Y-axis between:
-- **$ Value** — the USD market value of each holding at each point in time. Prices are pulled live from CoinGecko.
+- **$ Value** — the USD market value of each holding at each point in time. Prices are fetched live from CoinGecko, with CoinCap used as a fallback if CoinGecko is unavailable or rate-limited. Switching to a new time range resets this toggle back to # Coins (to avoid firing a burst of price requests); re-select $ Value after picking your range if you want it.
 - **# Coins** — the raw quantity held of each asset. Useful if you want to see how your position size has changed without price movement affecting the view.
 
 **Coin filter chips** (colored buttons below the controls): Click any coin to hide or show its line on the chart. Helpful when one large holding (like BTC or ETH) dwarfs others and makes the smaller lines hard to read.
@@ -68,6 +72,8 @@ Each row represents one sale event and shows:
 
 You can filter the table to show only SHORT or LONG trades using the buttons above the table.
 
+Note: buying/selling crypto directly with a stablecoin (USDC/USDT) also produces a stablecoin "sale" row here at $1/unit, since the engine treats stablecoins as cash. These almost always net to ~$0 gain/loss but will show up as separate rows.
+
 ---
 
 ### Open Lots Tab
@@ -77,14 +83,14 @@ Shows your **unrealized** positions — coins you currently hold that have not b
 | Column | What it means |
 |--------|--------------|
 | **Asset** | The coin |
-| **Acquired** | When you bought it |
-| **Remaining Qty** | How much of this lot you still hold (may be less than what you originally bought if a partial sale was matched against it) |
-| **Cost Basis / Unit** | What you paid per coin for this specific lot |
-| **Remaining Cost** | Total cost of the remaining quantity |
-| **Current Price** | Live market price (if available) |
-| **Unrealized Gain/Loss** | What you'd gain or lose if you sold right now |
+| **Purchased** | When you bought it |
+| **Qty Remaining** | How much of this lot you still hold (may be less than what you originally bought if a partial sale was matched against it) |
+| **Cost / Unit** | What you paid per coin for this specific lot |
+| **Amount Paid** | Total cost of the remaining quantity |
+| **Worth Now** | Live market price from CoinGecko × quantity remaining. Shows N/A if CoinGecko can't be reached or the coin isn't in its top-500-by-market-cap list |
+| **Unrealized P&L** | What you'd gain or lose if you sold right now. Also N/A when the price is unavailable |
 
-These lots are what the HIFO engine draws from when you record a future sale. The highest-cost lots are consumed first.
+These lots are what the HIFO engine draws from when you record a future sale. The highest-cost lots are consumed first (ties broken by earliest purchase date).
 
 ---
 
@@ -98,7 +104,7 @@ A log of all staking rewards, interest payments, and other income events. These 
 | **Date** | When it was received |
 | **Quantity** | How many coins were received |
 | **Value (USD)** | The USD market value at the moment of receipt — this is the amount the IRS considers taxable income |
-| **Type** | The income category (e.g., Staking Income, Reward Income) |
+| **Type** | The income category (e.g., Staking Income, Learning Reward, Rewards Income) |
 
 Note: when you eventually sell coins received as staking income, the cost basis for that sale is the USD value at the time you received them (shown in this table).
 
@@ -106,7 +112,7 @@ Note: when you eventually sell coins received as staking income, the cost basis 
 
 ### Clear All Data
 
-The **Clear all data** button in the top-right corner wipes everything from the database and resets the dashboard to a blank state. Use this if you want to start fresh with a new set of CSV files.
+The **Clear all data** button in the top-right corner asks for confirmation, then wipes everything from the database and resets the dashboard to a blank state. Use this if you want to start fresh with a new set of CSV files. This cannot be undone.
 
 ---
 
@@ -126,12 +132,21 @@ HIFO is legal under IRS rules (specific identification method) and is the most t
 
 | Coinbase Type | How It's Handled |
 |---------------|-----------------|
-| Buy / Dex Buy | Creates a new tax lot at total cost ÷ quantity |
-| Sell / Dex Sell | Records a sale; HIFO engine matches it to the highest-cost lot |
-| Convert | The source asset is treated as a sale; the destination asset gets a new lot |
-| Staking Income / Rewards | Logged as ordinary income at market value when received |
-| Send / Receive / Transfer | Skipped — non-taxable wallet movements |
-| DEX trade with no asset name | Flagged for manual review |
+| Buy / Dex Buy | Creates a new tax lot at total cost ÷ quantity. If the asset is USDC or USDT (i.e. you spent a stablecoin), it's instead recorded as a $1/unit stablecoin sale, since the crypto side of the trade already gets its own lot from the same row. |
+| Sell / Dex Sell | Records a sale; HIFO engine matches it to the highest-cost lot. If the asset is USDC or USDT, it's instead recorded as a $1/unit stablecoin buy lot. |
+| Convert | The source asset is treated as a sale; the destination asset (parsed from the transaction's Notes field) gets a new lot. |
+| Staking Income / Learning Reward / Rewards Income | Logged as ordinary income at market value when received. |
+| Send / Receive / Transfer | Skipped — non-taxable wallet movements. |
+| Transaction with no asset name, or any unrecognized type | Flagged for manual review — stored in the database and counted in the post-upload summary ("N flagged"). Browsing flagged rows individually in the dashboard is a planned improvement. |
+
+---
+
+## Tech Stack
+
+- **Frontend:** React 18 + TypeScript, Vite, Tailwind CSS, Recharts — deployed to Netlify as a static site.
+- **Backend:** Node.js + Express + TypeScript, `multer` (CSV upload), `csv-parser` — deployed to Render as a web service.
+- **Database:** PostgreSQL (hosted on Supabase), with the HIFO matching engine implemented as a stored procedure (`db/hifo_engine.sql`) so matching runs inside the database itself.
+- **Price data:** CoinGecko public API (primary), CoinCap (fallback for portfolio chart pricing only).
 
 ---
 
@@ -161,7 +176,7 @@ Render hosts the Node.js/Express API that parses CSVs, runs the HIFO engine, and
 3. Add one environment variable: `DATABASE_URL` → your Supabase connection string.
 4. Deploy. Copy the URL Render gives you (e.g. `https://your-service.onrender.com`).
 
-> **Free tier note:** Render's free tier spins down after 15 minutes of inactivity, causing a ~30-second delay on the next request. The $7/month paid tier keeps it always on.
+> **Free tier note:** Render's free tier spins down after 15 minutes of inactivity, causing a delay on the next request while it spins back up. A paid tier keeps it always on — check Render's current pricing.
 
 ### Frontend — Netlify
 
